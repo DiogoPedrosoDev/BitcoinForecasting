@@ -1,0 +1,13 @@
+Modelo: LSTM
+Erro (valores desnormalizados):
+
+      InceptionTime
+                   
+BIAS   1.241550e+04
+MSE    3.481925e+08
+RMSE   1.865992e+04
+MAE    1.244617e+04
+MAPE   3.050000e+01
+
+Training time (in seconds): 123.60
+Test time (in seconds): 0.59

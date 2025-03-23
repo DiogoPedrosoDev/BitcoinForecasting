@@ -1,0 +1,13 @@
+Modelo: LSTM
+Erro (valores desnormalizados):
+
+              LSTM
+                  
+BIAS -1.417097e+02
+MSE   9.022775e+06
+RMSE  3.003793e+03
+MAE   1.983824e+03
+MAPE  6.037293e+00
+
+Training time (in seconds): 41.99
+Test time (in seconds): 0.28

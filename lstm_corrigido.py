@@ -1,9 +1,4 @@
 # %%
-"""
-# Load packages
-"""
-
-# %%
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -28,8 +23,8 @@ from matplotlib import ticker
 from datetime import datetime, timedelta
 import statsmodels.api as sm
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from sklearn.preprocessing import MinMaxScaler  # <-- adicione aqui
+from sklearn.preprocessing import MinMaxScaler
+
 
 # %%
 large = 22; med = 16; small = 12
@@ -44,7 +39,6 @@ params = {'axes.titlesize': large,
 plt.rcParams.update(params)
 #plt.style.use('seaborn-whitegrid')
 sns.set_style("whitegrid")
-
 
 # Version
 print(mpl.__version__)
@@ -66,6 +60,8 @@ import pickle
 from math import sqrt
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_error
 
+
+
 file_name = "BTC-USD.csv"
 
 history = 24  # input historical time steps
@@ -73,7 +69,7 @@ horizon = 1  # output predicted time steps
 test_ratio = 0.2  # testing data ratio
 max_evals = 100  # maximal trials for hyper parameter tuning
 
-model_name = 'OmniScaleCNN'
+model_name = 'LSTM'
 # Save the results
 y_true_fn = '%s_true-%d-%d.pkl' % (model_name, history, horizon)
 y_pred_fn = '%s_pred-%d-%d.pkl' % (model_name, history, horizon)
@@ -100,12 +96,11 @@ plt.plot(df.index[train_length:], df['Close'][train_length:], label='Test', colo
 plt.axvspan(df.index[train_length], df.index[-1], facecolor='r', alpha=0.1)
 
 plt.xlabel('Time')
-plt.ylabel('Bitcoin Price (Close)')
+plt.ylabel('Bitcoin Price(Close)')
 plt.legend(loc='best')
 plt.tight_layout()
 plt.savefig("Resultados/" + str(model_name) + '_training_test_split.pdf', bbox_inches='tight', pad_inches=0.1)
 plt.close()
-
 # Define a feature de entrada
 input_features = ['Close']
 
@@ -147,21 +142,30 @@ y_valid = y_data[train_length:train_valid_length]
 X_test = x_data[train_valid_length:]
 y_test = y_data[train_valid_length:]
 
+
 X, y, splits = combine_split_data([X_train, X_valid], [y_train, y_valid])
 tfms  = [None, [TSRegression()]]
 dsets = TSDatasets(X, y, tfms=tfms, splits=splits, inplace=True)
 
 
 search_space = {
+    #'batch_size': hp.choice('bs', [16]),
     'batch_size': hp.choice('bs', [16, 32, 64, 128]),
-    "lr": hp.choice('lr', [0.01, 0.001, 0.0001]),
+    "lr": hp.choice('lr', (0.01, 0.0001)),
+    #"epochs": hp.choice('epochs', [1]),
     "epochs": hp.choice('epochs', [20, 50, 100]),  # we would also use early stopping
     "patience": hp.choice('patience', [5, 10]),  # early stopping patience
     # "optimizer": hp.choice('optimizer', [Adam, SGD, RMSProp]),  # https://docs.fast.ai/optimizer
     "optimizer": hp.choice('optimizer', [Adam]),
     # model parameters
+    "n_layers": hp.choice('n_layers', [1, 2, 3, 4, 5]),
+    "hidden_size": hp.choice('hidden_size', [50, 100, 200]),
+    "bidirectional": hp.choice('bidirectional', [True, False])
 }
 
+
+
+# %%
 def create_model_hypopt(params):
     
     try:
@@ -169,7 +173,7 @@ def create_model_hypopt(params):
         gc.collect()
         print("Trying params:", params)
         batch_size = params["batch_size"]
-    
+
         # Create data loader
         tfms  = [None, [TSRegression()]]
         dsets = TSDatasets(X, y, tfms=tfms, splits=splits, inplace=True)
@@ -177,7 +181,12 @@ def create_model_hypopt(params):
         dls   = TSDataLoaders.from_dsets(dsets.train, dsets.valid, bs=[batch_size, batch_size], num_workers=0)
     
         # Create model
-        arch = OmniScaleCNN
+        arch = LSTM
+        k = {
+            'n_layers': params['n_layers'],
+            'hidden_size': params['hidden_size'],
+            'bidirectional': params['bidirectional']
+        }
         model = create_model(arch, d=False, dls=dls)
         print(model.__class__.__name__)
         
@@ -204,8 +213,7 @@ def create_model_hypopt(params):
         del model
         del learn
         return {'loss': val_loss, 'status': STATUS_OK} # if accuracy use '-' sign, model is optional
-    except Exception as e:
-        print(e)
+    except:
         return {'loss': None, 'status': STATUS_FAIL}
 
 # %%
@@ -216,29 +224,39 @@ best = fmin(create_model_hypopt,
     max_evals=max_evals,  # test trials
     trials=trials)
 
-# %%
 print("Best parameters:")
 print(space_eval(search_space, best))
 params = space_eval(search_space, best)
 
+# %%
+# only for debug
+# params = {'batch_size': 16, 'bidirectional': False, 'epochs': 20, 'hidden_size': 200, 'lr': 0.01, 'n_layers': 5, 'optimizer': Adam, 'patience': 10}
 
+
+# %%
 X, y, splits = combine_split_data([X_train, X_valid], [y_train, y_valid])
 
 # %%
 batch_size = params["batch_size"]
-tfms  = [None, [TSRegression()]]
+tfms = [None, [TSRegression()]]
 dsets = TSDatasets(X, y, tfms=tfms, splits=splits, inplace=True)
 # set num_workers for memory bottleneck
-dls   = TSDataLoaders.from_dsets(dsets.train, dsets.valid, bs=[batch_size, batch_size], num_workers=0)
+dls = TSDataLoaders.from_dsets(dsets.train, dsets.valid, bs=[batch_size, batch_size], num_workers=0)
 
 
-
-arch = OmniScaleCNN
+arch = LSTM
+k = {
+    'n_layers': params['n_layers'],
+    'hidden_size': params['hidden_size'],
+    'bidirectional': params['bidirectional']
+}
 model = create_model(arch, d=False, dls=dls)
 print(model.__class__.__name__)
 
+# Add a Sigmoid layer
 model = nn.Sequential(model, nn.Sigmoid())
 
+# %%
 learn = Learner(dls, model, metrics=[mae, rmse], opt_func=params['optimizer'])
 start = time.time()
 learn.fit_one_cycle(params['epochs'], lr_max=params['lr'],
@@ -246,6 +264,7 @@ learn.fit_one_cycle(params['epochs'], lr_max=params['lr'],
 training_time = time.time() - start
 learn.plot_metrics()
 
+# %%
 dls = learn.dls
 valid_dl = dls.valid
 
@@ -253,6 +272,7 @@ test_ds = valid_dl.dataset.add_test(X_test, y_test)  # use the test data
 test_dl = valid_dl.new(test_ds)
 print(test_dl.n)
 
+# %%
 start = time.time()
 test_probas, test_targets, test_preds = learn.get_preds(dl=test_dl, with_decoded=True, save_preds=None, save_targs=None)
 prediction_time = time.time() - start
@@ -272,14 +292,21 @@ y_pred = y_pred.reshape(y_pred.shape[0], -1)
 y_true = scaler.inverse_transform(y_true)
 y_pred = scaler.inverse_transform(y_pred)
 
-
+# %%
 pickle.dump(y_pred, open(y_pred_fn, 'wb'))
 pickle.dump(y_true, open(y_true_fn, 'wb'))
 
+# %%
+"""
+The training and test time spent:
+"""
+
+# %%
 print('Training time (in seconds): ', training_time)
 print('Test time (in seconds): ', prediction_time)
 
 
+# %%
 def check_error(orig, pred, name_col='', index_name=''):
     bias = np.mean(orig - pred)
     mse = mean_squared_error(orig, pred)
@@ -290,25 +317,33 @@ def check_error(orig, pred, name_col='', index_name=''):
     error_group = [bias, mse, rmse, mae, mape]
     result = pd.DataFrame(error_group, index=['BIAS', 'MSE', 'RMSE', 'MAE', 'MAPE'], columns=[name_col])
     result.index.name = index_name
-    print(str(result))
+    print("Result: " + str(result))
     return result
 
+
+# %%
 step_to_evalute = 0
 true_values = y_true[:, step_to_evalute]
 pred_values = y_pred[:, step_to_evalute]
 
+# %%
 result = pd.DataFrame()
 
-target = 'Close'
+# %%
+##check_error(true_values, pred_values, name_col=model_name)
+result = check_error(true_values, pred_values, name_col=model_name)
 
-model_test = test[[target]].copy()
-model_test.index = test.index
-model_test.columns = ['Real']
+# Salvar resultado em arquivo .txt
+with open(f"Resultados/{model_name}_erro_metrics.txt", "w") as f:
+    f.write("Modelo: LSTM\n")
+    f.write("Erro (valores desnormalizados):\n\n")
+    f.write(result.to_string())
+    f.write("\n\n")
+    f.write(f"Training time (in seconds): {training_time:.2f}\n")
+    f.write(f"Test time (in seconds): {prediction_time:.2f}\n")
 
-model_test['Pred'] = pred_values
 
-check_error(true_values, pred_values, name_col=model_name)
-
+# %%
 def plot_error(data, figsize=(12, 9), lags=24, rotation=0):
     # Creating the column error
     data['Error'] = data.iloc[:, 0] - data.iloc[:, 1]
@@ -334,13 +369,20 @@ def plot_error(data, figsize=(12, 9), lags=24, rotation=0):
     # Residual QQ Plot
     sm.graphics.qqplot(data.iloc[:, 2], line='r', ax=ax3)
 
-     # Autocorrelation Plot of residual
+    # Autocorrelation Plot of residual
     plot_acf(data.iloc[:, 2], lags=lags, zero=False, ax=ax4)
     plt.tight_layout()
     #plt.show()
     plt.savefig("Resultados/" + str(model_name) + '_autoCorrelation.pdf', bbox_inches='tight', pad_inches=0.1)
     plt.close()
+    
+
+target = 'Close'
+
+model_test = test[[target]].copy()
+model_test.index = test.index
+model_test.columns = ['Real']
+
+model_test['Pred'] = pred_values
 
 plot_error(model_test, rotation=45)
-
-# %%
